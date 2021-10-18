@@ -9,7 +9,7 @@ import { api } from '../service/api';
 import * as S from './styled';
 
 
-type DataSchema = {
+type CodeBlockConfig = {
   code: string;
   includeFbml: boolean;
   includeSwfObject: boolean;
@@ -79,7 +79,7 @@ export interface Style {
   parentId: string;
 }
 
-export interface RootObject {
+export interface CodeBlock {
   content?: Content;
   elementTypeName?: string;
   __type?: string;
@@ -97,73 +97,95 @@ export interface RootObject {
   parentId?: string;
 }
 
+
+
 export const CodeBlockComponent = (): JSX.Element => {
   const { pageId,elementId } = useParams<RouteParamsSchema>()
-  const { register, handleSubmit, control, watch } = useForm<DataSchema>();
-  const [schema, setSchema] = useState<RootObject>();
+  const { register, handleSubmit, control, watch, setValue } = useForm<CodeBlockConfig>();
+  const [baseCodeBlock, setBaseCodeBlock] = useState<CodeBlock>();
 
   const watchCode = watch("code");
   const watchIncludeFbml = watch("includeFbml" );
   const watchIncludeSwfObject = watch("includeSwfObject");
 
+  const parentWindow = window.parent;
+
 
   useEffect(() => {
-    const handler = (event: any) => {
+    const callbackListenerReceiveMessage = (event: MessageEvent<any>) => {
       if(event.data.type === "codeBlock") {
-        const codeBlockSchema =  JSON.parse(event.data.payload);
+        const codeBlockSchema =  JSON.parse(event.data.payload);   
+    
+        if(!!codeBlockSchema?.content?.code) setValue("code", codeBlockSchema?.content?.code)
+        if(!!codeBlockSchema?.content?.includeFbml) setValue("includeFbml", true)
+        if(!!codeBlockSchema?.content?.includeSwfObject) setValue("includeSwfObject", true)
 
-        // console.log(codeBlockSchema)
-        setSchema(codeBlockSchema)
+        setBaseCodeBlock(codeBlockSchema)
       }
-      
     }
 
-    window.addEventListener("message", handler, false)
+    window.addEventListener("message", callbackListenerReceiveMessage, { capture: true, passive: true })
 
-    // clean up
-    return () => window.removeEventListener("message", handler, false)
-  }, []) // empty array => run only once
-
-useEffect(() => {
-  setSchema(prevState => ({...prevState, content: {
+    return () => window.removeEventListener("message", callbackListenerReceiveMessage, true)
+  }, [])
+  
+  
+  const setCodeAndCodeBlockConfig = ({ code, includeFbml, includeSwfObject }: CodeBlockConfig) =>
+    setBaseCodeBlock(prevState => ({
+      ...prevState, content: {
     ...prevState?.content,
-    code: watchCode,
-    includeFbml: watchIncludeFbml,
-    includeSwfObject: watchIncludeSwfObject
+    code,
+    includeFbml,
+    includeSwfObject
   }}))
-}, [watchCode, watchIncludeFbml, watchIncludeSwfObject])
+
+
+  useEffect(() => {
+    setCodeAndCodeBlockConfig({
+      code: watchCode,
+      includeFbml: watchIncludeFbml,
+      includeSwfObject: watchIncludeSwfObject,
+    })
+  }, [watchCode, watchIncludeFbml, watchIncludeSwfObject])
+
+
+  const sendSuccessMessageToParentWindow = (cadeBlock: any) => parentWindow.postMessage({
+      type: "success",
+      payload: JSON.stringify(cadeBlock)
+  }, "https://test.pcm.com")
+
   
   const onSubmit = async () => {
-    console.log(schema)
-    api.post(`/admin/api/pages/${pageId}/elements/widgets/${elementId}/view?asAdvanced=Y`, 
-    schema, 
-    {
-      headers: {
-        cookies: "ajs_anonymous_id=d94366c1-06bf-469d-9281-7856eaa9704f; ixp__cookie-consent=9/24/2021 9:26:12 PM; _ga=GA1.2.528923778.1632518824; ajs_user_id=dev; ss-pid=gkDr1EOZqefDzHu/BFuV; _gid=GA1.2.185710466.1633350588; ASP.NET_SessionId=v3bwxvutrosmepiofshicb5r; LiveBallAuth=1057170D5B849F6D7DD60E1939ABD0E8DC3963F59F42FF81DE27A7751AF84A7CA2ED2806AA74E6E655247254364EB2AB8CB883956653D7C733AB6991A4CFB87D2265CF6760F88584215594CD5A296D90BFE42B711C14DF09955FF783DC35367B; ss-id=PSlW/R9rzsu6xMgi8fxQ; _gat=1"
-      }
-    })
-    .then(()=> console.log("save with success"))
+    if(baseCodeBlock?.hasContent){
+     return api.put(
+        `/admin/api/pages/${pageId}/elements/widgets/${elementId}/view?asAdvanced=Y`,
+        baseCodeBlock
+      )
+      .then(sendSuccessMessageToParentWindow)
+      .catch(error => console.log(JSON.stringify(error)))
+    }
+
+    api.post(
+      `/admin/api/pages/${pageId}/elements/widgets/${elementId}/view?asAdvanced=Y`,
+      baseCodeBlock
+    )
+    .then(sendSuccessMessageToParentWindow)
     .catch(error => console.log(JSON.stringify(error)))
-
-
-    // api.get(
-    //   "/admin/api/pages/2?asAdvanced=Y", {
-    //       headers: {
-    //         cookies: "ajs_anonymous_id=d94366c1-06bf-469d-9281-7856eaa9704f; ixp__cookie-consent=9/24/2021 9:26:12 PM; _ga=GA1.2.528923778.1632518824; ajs_user_id=dev; ss-pid=gkDr1EOZqefDzHu/BFuV; _gid=GA1.2.185710466.1633350588; ASP.NET_SessionId=v3bwxvutrosmepiofshicb5r; LiveBallAuth=1057170D5B849F6D7DD60E1939ABD0E8DC3963F59F42FF81DE27A7751AF84A7CA2ED2806AA74E6E655247254364EB2AB8CB883956653D7C733AB6991A4CFB87D2265CF6760F88584215594CD5A296D90BFE42B711C14DF09955FF783DC35367B; ss-id=PSlW/R9rzsu6xMgi8fxQ; _gat=1"
-    //       }
-    //     }
-    // ).then((result)=> console.log("get with success", result))
-    // .catch(error => console.log(JSON.stringify(error)))
   };
-
-
   
+
+  // useEffect(() => {
+  //   if(baseCodeBlock?.content){
+  //     if(!!baseCodeBlock?.content?.code) setValue("code", baseCodeBlock?.content?.code)
+  //     if(!!baseCodeBlock?.content?.includeFbml) setValue("includeFbml", true)
+  //     if(!!baseCodeBlock?.content?.includeSwfObject) setValue("includeSwfObject", true)
+  //   }
+  // }, [baseCodeBlock?.content])
+
   return (
   <S.CodeWrapper>
     <form onSubmit={handleSubmit(onSubmit)}>
       <S.TitleWrapper>HTML/script:</S.TitleWrapper>
-      {/* <S.TitleWrapper>pageid - {pageId}</S.TitleWrapper>
-      <S.TitleWrapper>elementId - {elementId}</S.TitleWrapper> */}
      
       <Controller
         name="code"

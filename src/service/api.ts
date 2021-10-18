@@ -1,5 +1,6 @@
 import axios from 'axios'
 
 export const api = axios.create({
-    baseURL: "https://test.pcm.com"
+    withCredentials: true,
+    baseURL: "https://test.pcm.com",
 })
